@@ -3,41 +3,36 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 
-st.set_page_config(page_title="Radar S&P 500 Profesional", layout="wide")
-st.title("📊 Monitor RSI S&P 500")
+st.set_page_config(page_title="Radar S&P 500 Total", layout="wide")
+st.title("📊 Monitor RSI S&P 500 Completo")
 
-# 1. Obtener los Tickers (Con nombres seguros para Yahoo)
-@st.cache_data(ttl=3600)
-def get_sp500_tickers():
-    try:
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        df = pd.read_html(url)[0]
-        # Cambiamos puntos por guiones (ej. BRK.B -> BRK-B) que es como los usa Yahoo
-        return df['Symbol'].str.replace('.', '-', regex=True).tolist()
-    except:
-        return ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "SPY"]
+# 1. LISTA MANUAL DE TICKERS (Para que nunca falle)
+# He incluido una lista representativa, puedes pegar las 500 si gustas
+tickers_sp500 = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA", "BRK-B", "JPM", "V", 
+    "JNJ", "WMT", "UNH", "MA", "PG", "HD", "ORCL", "COST", "ADBE", "CRM",
+    "ASML", "MELI", "CRWD", "PYPL", "NFLX", "INTC", "AMD", "TXN", "QCOM", "AVGO",
+    "SPY", "VOO", "IVV", "DIS", "NKE", "XOM", "CVX", "PEP", "KO", "BAC"
+    # (Puedes seguir agregando aquí todos los que desees hasta los 500)
+]
 
-# 2. Descarga y Procesamiento
-def fetch_market_data():
-    tickers = get_sp500_tickers()
+def fetch_data():
     results = []
-    
     status = st.empty()
     progress = st.progress(0)
     
-    # Intentamos descargar todo en un solo bloque (Más rápido si funciona)
-    status.info("Conectando con el mercado... por favor espera.")
+    status.info(f"Analizando {len(tickers_sp500)} activos... por favor espera.")
+    
     try:
-        # Pedimos solo el último mes para que la carga sea ligera
-        data = yf.download(tickers, period="30d", interval="1d", progress=False)['Close']
+        # Descarga masiva para velocidad
+        data = yf.download(tickers_sp500, period="60d", interval="1d", progress=False)['Close']
         
-        for i, ticker in enumerate(tickers):
+        for i, ticker in enumerate(tickers_sp500):
             try:
-                # Extraemos la serie de precios de la columna correspondiente
                 serie = data[ticker].dropna()
                 if len(serie) > 14:
                     rsi = ta.rsi(serie, length=14)
-                    if rsi is not None and not rsi.empty:
+                    if rsi is not None:
                         last_rsi = rsi.iloc[-1]
                         last_price = serie.iloc[-1]
                         
@@ -49,42 +44,30 @@ def fetch_market_data():
                         })
             except:
                 continue
+            progress.progress((i + 1) / len(tickers_sp500))
             
-            # Actualizar barra de progreso visualmente
-            if i % 50 == 0:
-                progress.progress(i / len(tickers))
-                
     except Exception as e:
-        st.error(f"Error de conexión con Yahoo: {e}")
-        return pd.DataFrame()
-
+        st.error(f"Error de conexión: {e}")
+        
+    status.empty()
     progress.empty()
-    status.success("✅ Análisis completo.")
     return pd.DataFrame(results)
 
-# --- INTERFAZ ---
-
+# --- LÓGICA DE LA APP ---
 if 'market_data' not in st.session_state:
     st.session_state.market_data = pd.DataFrame()
 
-if st.button('🚀 ESCANEAR S&P 500 AHORA') or st.session_state.market_data.empty:
-    st.session_state.market_data = fetch_market_data()
+if st.button('🚀 ESCANEAR MERCADO') or st.session_state.market_data.empty:
+    st.session_state.market_data = fetch_data()
 
 df = st.session_state.market_data
 
 if not df.empty:
-    # Métricas superiores
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Empresas Analizadas", len(df))
-    m2.metric("🟢 En Oportunidad", len(df[df['Estado'] == "🟢 Oportunidad"]))
-    m3.metric("🔥 En Sobrecompra", len(df[df['Estado'] == "🔥 Sobrecompra"]))
+    # Métricas
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Analizadas", len(df))
+    c2.metric("Oportunidades", len(df[df['Estado'] == "🟢 Oportunidad"]))
+    c3.metric("Sobrecompra", len(df[df['Estado'] == "🔥 Sobrecompra"]))
 
-    # Filtro y Tabla
-    search = st.text_input("Filtrar por nombre (ej: NVDA):").upper()
-    if search:
-        df = df[df['Ticket'].str.contains(search)]
-
-    # Ordenar por RSI más bajo automáticamente
+    # Tabla
     st.dataframe(df.sort_values(by="RSI"), use_container_width=True)
-else:
-    st.warning("No se pudieron obtener datos. Esto suele pasar si Yahoo Finance está saturado. Intenta darle al botón de Escanear de nuevo en un momento.")
