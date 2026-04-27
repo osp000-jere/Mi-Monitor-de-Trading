@@ -57,4 +57,4 @@ if results:
 else:
     st.error("No se pudieron cargar los datos. Revisa la conexión o los tickers.")
 
-st.info("Nota: Los datos pueden tener un retraso de 15 minutos según Yahoo Finance.")st))
+st.info("Nota: Los datos pueden tener un retraso de 15 minutos según Yahoo Finance.")
