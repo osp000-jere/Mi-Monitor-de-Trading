@@ -3,61 +3,69 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 
-st.set_page_config(page_title="Radar de Oportunidades", layout="wide")
-st.title("🚀 Mi Monitor de Trading Permanente")
+st.set_page_config(page_title="Radar S&P 500", layout="wide")
+st.title("📊 Monitor RSI S&P 500")
 
-# Lista de activos estrella
-tickers = ["SPY", "MELI", "ASML", "CRWD", "BTC-USD", "NVDA", "AAPL", "MSFT", "MSTR", "TSLA"]
+# --- FUNCIÓN PARA OBTENER TICKERS DEL S&P 500 ---
+@st.cache_data
+def get_sp500_tickers():
+    url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    table = pd.read_html(url)
+    df = table[0]
+    return df['Symbol'].tolist()
 
-@st.cache_data(ttl=300)
-def get_data_fast(symbols):
-    # Descarga masiva de datos de cierre
-    df = yf.download(symbols, period="60d", interval="1d", progress=False)
-    return df['Close']
+# --- FUNCIÓN PARA DESCARGAR DATOS CON CACHÉ ---
+@st.cache_data(ttl=600) # Se actualiza cada 10 minutos
+def download_all_data(tickers):
+    data = yf.download(tickers, period="60d", interval="1d", progress=False)['Close']
+    return data
 
 try:
-    with st.spinner('Sincronizando con el mercado...'):
-        prices = get_data_fast(tickers)
-        results = []
+    tickers = get_sp500_tickers()
+    
+    with st.spinner(f'Analizando {len(tickers)} acciones... esto tardará unos 45 segundos la primera vez.'):
+        prices = download_all_data(tickers)
         
+        results = []
         for t in tickers:
             try:
-                # Extraer serie de precios para el ticket actual
-                serie_precios = prices[t].dropna()
-                if len(serie_precios) > 15:
-                    rsi = ta.rsi(serie_precios, length=14)
-                    if rsi is not None and not rsi.empty:
-                        last_rsi = float(rsi.iloc[-1])
-                        last_price = float(serie_precios.iloc[-1])
-                        
-                        results.append({
-                            "Ticket": t,
-                            "Precio": round(last_price, 2),
-                            "RSI": round(last_rsi, 2),
-                            "Estado": "🔥 Sobrecompra" if last_rsi > 70 else ("🟢 Oportunidad" if last_rsi < 30 else "⚖️ Neutral")
-                        })
+                serie = prices[t].dropna()
+                if len(serie) > 14:
+                    rsi = ta.rsi(serie, length=14)
+                    last_rsi = rsi.iloc[-1]
+                    last_price = serie.iloc[-1]
+                    
+                    results.append({
+                        "Ticket": t,
+                        "Precio": round(last_price, 2),
+                        "RSI": round(last_rsi, 2),
+                        "Estado": "🔥 Sobrecompra" if last_rsi > 70 else ("🟢 Oportunidad" if last_rsi < 30 else "⚖️ Neutral")
+                    })
             except:
-                continue # Si uno falla, seguimos con el siguiente
+                continue
 
     if results:
-        st.subheader("Análisis de Fuerza (RSI)")
-        df_final = pd.DataFrame(results)
+        df = pd.DataFrame(results)
         
-        # Función de estilo actualizada para versiones modernas de Pandas
-        def color_estado(val):
-            if val == '🟢 Oportunidad': return 'background-color: #d4edda; color: #155724'
-            if val == '🔥 Sobrecompra': return 'background-color: #f8d7da; color: #721c24'
-            return ''
+        # Filtros rápidos
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Acciones", len(df))
+        with col2:
+            st.metric("En Sobreventa (Oportunidad)", len(df[df['Estado'] == "🟢 Oportunidad"]))
+        with col3:
+            st.metric("En Sobrecompra", len(df[df['Estado'] == "🔥 Sobrecompra"]))
 
-        st.dataframe(df_final.style.map(color_estado, subset=['Estado']), use_container_width=True)
-    else:
-        st.warning("Cargando datos iniciales... Si no aparece la tabla, pulsa el botón de Refrescar.")
-    
+        st.subheader("Buscador y Resultados")
+        search = st.text_input("Filtrar por Ticket (ej: AAPL, TSLA):").upper()
+        if search:
+            df = df[df['Ticket'].str.contains(search)]
+
+        st.dataframe(df.sort_values(by="RSI", ascending=True), use_container_width=True)
+
 except Exception as e:
-    st.error(f"Ajustando conexión... Pulsa Refrescar. (Info: {e})")
+    st.error("Error al cargar el S&P 500. Reintenta en unos segundos.")
 
-if st.button('Refrescar Monitor'):
+if st.button('Actualizar Datos'):
     st.cache_data.clear()
     st.rerun()
-
-st.info("Datos obtenidos de Yahoo Finance (Gratis y Permanente).")
